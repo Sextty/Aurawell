@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aurawell-postgres
+    environment:
+      POSTGRES_USER: aurawell
+      POSTGRES_PASSWORD: aurawell
+      POSTGRES_DB: aurawell
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurawell"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: ./api
+    container_name: aurawell-api
+    environment:
+      DATABASE_URL: postgresql://aurawell:aurawell@postgres:5432/aurawell
+      PORT: "4400"
+      JWT_SECRET: change-me-in-production
+    ports:
+      - "4400:4400"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    container_name: aurawell-web
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pg-data:

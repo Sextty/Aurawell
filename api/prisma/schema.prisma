@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String @id @default(cuid())
+  name     String
+  email    String @unique
+  password String
+  role     String // patient | doctor
+  specialty String? // set for doctors only
+
+  patientAppointments Appointment[] @relation("PatientAppointments")
+  doctorAppointments  Appointment[] @relation("DoctorAppointments")
+}
+
+model Appointment {
+  id        String   @id @default(cuid())
+  date      DateTime
+  time      String
+  reason    String
+  status    String   @default("upcoming") // upcoming | completed | cancelled
+  patient   User     @relation("PatientAppointments", fields: [patientId], references: [id], onDelete: Cascade)
+  patientId String
+  doctor    User     @relation("DoctorAppointments", fields: [doctorId], references: [id], onDelete: Cascade)
+  doctorId  String
+  createdAt DateTime @default(now())
+
+  // A doctor can't be double-booked for the same date + time slot.
+  @@unique([doctorId, date, time])
+}
