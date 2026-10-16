@@ -6,6 +6,8 @@ export function useAppointments(user) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [pendingId, setPendingId] = useState(null);
 
   const reload = useCallback(async () => {
     if (!user) return;
@@ -32,16 +34,36 @@ export function useAppointments(user) {
     return appt;
   };
 
-  const cancel = async (id) => {
-    await api.cancelAppointment(id);
-    setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status: "cancelled" } : a)));
+  // Optimistic status change with rollback: the update is applied immediately
+  // and reverted (plus a visible error shown) if the API call fails.
+  const changeStatus = async (id, status) => {
+    const snapshot = appointments.find((a) => a.id === id);
+    setActionError("");
+    setPendingId(id);
+    setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+    try {
+      await api.updateAppointmentStatus(id, status);
+      return true;
+    } catch (err) {
+      if (snapshot) {
+        setAppointments((prev) => prev.map((a) => (a.id === id ? snapshot : a)));
+      }
+      setActionError(err.message);
+      return false;
+    } finally {
+      setPendingId(null);
+    }
   };
+
+  const cancel = (id) => changeStatus(id, "cancelled");
 
   return {
     doctors,
     appointments,
     loading,
     loadError,
+    actionError,
+    pendingId,
     reload,
     book,
     cancel,

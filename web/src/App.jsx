@@ -7,8 +7,17 @@ import { DoctorConsole } from "./components/DoctorConsole.jsx";
 
 export default function App() {
   const { user, booted, login, logout } = useAuth();
-  const { doctors, appointments, loading, loadError, reload, book, cancel } =
-    useAppointments(user);
+  const {
+    doctors,
+    appointments,
+    loading,
+    loadError,
+    actionError,
+    pendingId,
+    reload,
+    book,
+    cancel,
+  } = useAppointments(user);
 
   if (!booted) return null;
   if (!user) return <LoginCard onLogin={login} />;
@@ -19,12 +28,30 @@ export default function App() {
     <>
       <Navbar user={user} onSignOut={logout} />
       <main>
-        {loadError && <div className="error">{loadError}</div>}
+        {loadError && (
+          <div className="error">
+            {loadError}{" "}
+            <button className="ghost compact" onClick={reload}>
+              Retry
+            </button>
+          </div>
+        )}
         {loading && <p className="muted">Loading…</p>}
+        {actionError && (
+          <div className="error" role="status">
+            {actionError}
+          </div>
+        )}
         {!isDoctor ? (
-          <PatientPortal doctors={doctors} appointments={appointments} book={book} cancel={cancel} />
+          <PatientPortal
+            doctors={doctors}
+            appointments={appointments}
+            pendingId={pendingId}
+            book={book}
+            cancel={cancel}
+          />
         ) : (
-          <DoctorConsole appointments={appointments} />
+          <DoctorConsole appointments={appointments} pendingId={pendingId} updateStatus={cancel} />
         )}
       </main>
     </>
