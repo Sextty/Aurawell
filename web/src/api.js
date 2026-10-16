@@ -47,8 +47,12 @@ export const api = {
   },
   logout: () => setSession(null, null),
   getDoctors: () => request("/api/doctors"),
+  getAvailability: (doctorId, date) =>
+    request(`/api/doctors/${doctorId}/availability?date=${encodeURIComponent(date)}`),
   getAppointments: () => request("/api/appointments"),
   bookAppointment: (doctorId, date, time, reason) =>
     request("/api/appointments", { method: "POST", body: JSON.stringify({ doctorId, date, time, reason }) }),
   cancelAppointment: (id) => request(`/api/appointments/${id}/cancel`, { method: "PATCH" }),
+  updateAppointmentStatus: (id, status) =>
+    request(`/api/appointments/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
 };
