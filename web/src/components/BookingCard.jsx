@@ -83,11 +83,15 @@ export function BookingCard({ doctors, onBook }) {
       <h2>Book an appointment</h2>
 
       {booked && (
-        <div className="success">
+        <div className="success" role="status">
           Appointment booked with {booked.doctor} on {new Date(booked.date).toLocaleDateString()} at {booked.time}.
         </div>
       )}
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
 
       <div className="row">
         <label>
@@ -113,17 +117,29 @@ export function BookingCard({ doctors, onBook }) {
       </div>
 
       <div className="field-group">
-        <span className="field-label">Available times</span>
-        {slotsState.loading && <p className="muted">Loading slots…</p>}
-        {slotsState.error && <p className="error">{slotsState.error}</p>}
+        <span className="field-label" id="slot-group-label">
+          Available times
+        </span>
+        {slotsState.loading && (
+          <p className="muted" role="status">
+            Loading slots…
+          </p>
+        )}
+        {slotsState.error && (
+          <p className="error" role="alert">
+            {slotsState.error}
+          </p>
+        )}
         {!slotsState.loading && !slotsState.error && date && availability && pills.length === 0 && (
-          <p className="muted">No slots for this date.</p>
+          <p className="muted" role="status">
+            No slots for this date.
+          </p>
         )}
         {!slotsState.loading && !slotsState.error && !date && (
           <p className="muted">Pick a date to see available times.</p>
         )}
         {pills.length > 0 && (
-          <div className="pills">
+          <div className="pills" role="group" aria-labelledby="slot-group-label">
             {pills.map(({ slot, available }) => (
               <button
                 key={slot}

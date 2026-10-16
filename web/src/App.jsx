@@ -29,7 +29,7 @@ export default function App() {
       <Navbar user={user} onSignOut={logout} />
       <main>
         {loadError && (
-          <div className="error">
+          <div className="error-banner" role="alert">
             {loadError}{" "}
             <button className="ghost compact" onClick={reload}>
               Retry
@@ -38,7 +38,7 @@ export default function App() {
         )}
         {loading && <p className="muted">Loading…</p>}
         {actionError && (
-          <div className="error" role="status">
+          <div className="error" role="alert">
             {actionError}
           </div>
         )}
