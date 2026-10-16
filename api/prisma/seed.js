@@ -20,11 +20,12 @@ async function main() {
 
   const apptCount = await prisma.appointment.count();
   if (apptCount === 0) {
-    const upcoming = new Date();
-    upcoming.setDate(upcoming.getDate() + 4);
+    const d = new Date();
+    d.setDate(d.getDate() + 4);
+    const dateStr = d.toISOString().slice(0, 10);
     await prisma.appointment.create({
       data: {
-        date: upcoming,
+        date: new Date(`${dateStr}T00:00:00.000Z`),
         time: "10:00 AM",
         reason: "Annual cardiac check-up",
         status: "upcoming",

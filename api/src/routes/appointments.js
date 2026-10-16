@@ -1,49 +1,144 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+import { asyncHandler } from "../middleware/errors.js";
+import {
+  validateBody,
+  validateQuery,
+  bookingSchema,
+  doctorStatusSchema,
+  appointmentQuerySchema,
+} from "../middleware/validate.js";
+import { APPOINTMENT_STATUS } from "../constants/status.js";
+import { getClinicTodayString, parseDateToUtc } from "../utils/datetime.js";
 
 const router = Router();
 router.use(requireAuth);
 
 // Patients see their own visits; doctors see everyone booked with them.
-router.get("/", async (req, res) => {
-  const where = req.user.role === "doctor" ? { doctorId: req.user.sub } : { patientId: req.user.sub };
-  const appointments = await prisma.appointment.findMany({
-    where,
-    include: {
-      patient: { select: { name: true } },
-      doctor: { select: { name: true, specialty: true } },
-    },
-    orderBy: { date: "asc" },
-  });
-  res.json(appointments);
-});
+// Supports status filtering and limit pagination.
+router.get(
+  "/",
+  validateQuery(appointmentQuerySchema),
+  asyncHandler(async (req, res) => {
+    const { status, limit } = req.query;
+    const baseWhere =
+      req.user.role === "doctor" ? { doctorId: req.user.sub } : { patientId: req.user.sub };
 
-// Patients book; the doctor+date+time slot is enforced unique at the DB level
-// so two patients can never double-book the same doctor.
-router.post("/", async (req, res) => {
-  if (req.user.role !== "patient") return res.status(403).json({ error: "Only patients can book appointments" });
-  const { doctorId, date, time, reason } = req.body;
-  if (!doctorId || !date || !time) return res.status(400).json({ error: "doctorId, date, time required" });
+    const where = status ? { ...baseWhere, status } : baseWhere;
 
-  try {
-    const appt = await prisma.appointment.create({
-      data: { doctorId, date: new Date(date), time, reason: reason || "General consultation", patientId: req.user.sub },
+    const appointments = await prisma.appointment.findMany({
+      where,
+      take: limit,
+      include: {
+        patient: { select: { id: true, name: true, email: true } },
+        doctor: { select: { id: true, name: true, specialty: true } },
+      },
+      orderBy: [{ date: "asc" }, { time: "asc" }],
     });
-    res.status(201).json(appt);
-  } catch (err) {
-    if (err.code === "P2002") return res.status(409).json({ error: "That slot is no longer available" });
-    throw err;
-  }
-});
+    res.json(appointments);
+  })
+);
 
-router.patch("/:id/cancel", async (req, res) => {
-  const { count } = await prisma.appointment.updateMany({
-    where: { id: req.params.id, patientId: req.user.sub },
-    data: { status: "cancelled" },
-  });
-  if (count === 0) return res.status(404).json({ error: "not found" });
-  res.json({ cancelled: req.params.id });
-});
+// Patients book an appointment; slot conflict returns 409, doctor relation included in response.
+router.post(
+  "/",
+  validateBody(bookingSchema),
+  asyncHandler(async (req, res) => {
+    if (req.user.role !== "patient") {
+      return res.status(403).json({ error: "Only patients can book appointments" });
+    }
+
+    const { doctorId, date, time, reason } = req.body;
+
+    const doctor = await prisma.user.findFirst({
+      where: { id: doctorId, role: "doctor" },
+      select: { id: true, name: true, specialty: true },
+    });
+    if (!doctor) {
+      return res.status(400).json({ error: "Doctor not found" });
+    }
+
+    const normalizedDate = parseDateToUtc(date);
+
+    try {
+      const appt = await prisma.appointment.create({
+        data: {
+          doctorId,
+          date: normalizedDate,
+          time,
+          reason,
+          patientId: req.user.sub,
+          status: APPOINTMENT_STATUS.UPCOMING,
+        },
+        include: {
+          doctor: { select: { id: true, name: true, specialty: true } },
+          patient: { select: { id: true, name: true, email: true } },
+        },
+      });
+      res.status(201).json(appt);
+    } catch (err) {
+      if (err.code === "P2002") {
+        return res.status(409).json({ error: "That slot is no longer available" });
+      }
+      throw err;
+    }
+  })
+);
+
+// Patients can cancel their own upcoming appointment on or after today.
+// State change is atomic via updateMany; returns 404 if not found or not eligible.
+router.patch(
+  "/:id/cancel",
+  asyncHandler(async (req, res) => {
+    if (req.user.role !== "patient") {
+      return res.status(403).json({ error: "Only patients can cancel visits" });
+    }
+
+    const todayDate = parseDateToUtc(getClinicTodayString());
+
+    const { count } = await prisma.appointment.updateMany({
+      where: {
+        id: req.params.id,
+        patientId: req.user.sub,
+        status: APPOINTMENT_STATUS.UPCOMING,
+        date: { gte: todayDate },
+      },
+      data: { status: APPOINTMENT_STATUS.CANCELLED },
+    });
+
+    if (count === 0) {
+      return res.status(404).json({ error: "Appointment not found or cannot be cancelled" });
+    }
+
+    res.json({ cancelled: req.params.id });
+  })
+);
+
+// Doctors can manage visits booked with them (mark completed or cancelled).
+// State change is atomic via updateMany; returns 404 if not found or not eligible.
+router.patch(
+  "/:id/status",
+  requireRole("doctor"),
+  validateBody(doctorStatusSchema),
+  asyncHandler(async (req, res) => {
+    const { status } = req.body;
+
+    const { count } = await prisma.appointment.updateMany({
+      where: {
+        id: req.params.id,
+        doctorId: req.user.sub,
+        status: APPOINTMENT_STATUS.UPCOMING,
+      },
+      data: { status },
+    });
+
+    if (count === 0) {
+      return res.status(404).json({ error: "Appointment not found or status cannot be updated" });
+    }
+
+    res.json({ id: req.params.id, status });
+  })
+);
 
 export default router;

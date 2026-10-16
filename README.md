@@ -40,6 +40,8 @@ docker compose up --build
 - App: http://localhost:5173
 - API: http://localhost:4400/api/health
 
+> **Note:** the `JWT_SECRET` in `docker-compose.yml` (`change-me-in-production`) is a **demo value** for local development only. Override it with a real secret in any deployment — the API refuses to boot in production without one.
+
 Demo logins (both use `demo1234`):
 - `patient@aurawell.app` — patient portal
 - `doctor@aurawell.app` — doctor console

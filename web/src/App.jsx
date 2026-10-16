@@ -60,7 +60,9 @@ function BookingForm({ doctors, onBook }) {
       await onBook(doctorId, date, time, reason);
       setReason("");
     } catch (err) {
-      setError(err.message.includes("409") ? "That slot is already booked — pick another time." : "Could not book appointment");
+      setError(err.message.includes("409")
+        ? "That slot is already booked — pick another time."
+        : err.message.replace(/^Request failed: \d+$/, "Could not book appointment"));
     }
   };
 

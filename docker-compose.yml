@@ -23,6 +23,7 @@ services:
       DATABASE_URL: postgresql://aurawell:aurawell@postgres:5432/aurawell
       PORT: "4400"
       JWT_SECRET: change-me-in-production
+      CORS_ORIGIN: "http://localhost:5173,http://localhost"
     ports:
       - "4400:4400"
     depends_on:
