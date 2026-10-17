@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
+import { sortAppointments } from "../lib/datetime.js";
 
 export function useAppointments(user) {
   const [doctors, setDoctors] = useState([]);
@@ -16,7 +17,7 @@ export function useAppointments(user) {
     try {
       const [d, a] = await Promise.all([api.getDoctors(), api.getAppointments()]);
       setDoctors(d);
-      setAppointments(a);
+      setAppointments(sortAppointments(a));
     } catch (err) {
       setLoadError(err.message);
     } finally {
@@ -30,19 +31,26 @@ export function useAppointments(user) {
 
   const book = async (doctorId, date, time, reason) => {
     const appt = await api.bookAppointment(doctorId, date, time, reason);
-    setAppointments((prev) => [...prev, appt]);
+    setAppointments((prev) => sortAppointments([...prev, appt]));
     return appt;
   };
 
   // Optimistic status change with rollback: the update is applied immediately
   // and reverted (plus a visible error shown) if the API call fails.
-  const changeStatus = async (id, status) => {
+  // Patients go through their own PATCH /:id/cancel route; doctors through
+  // PATCH /:id/status.
+  const changeStatus = async (id, status = "cancelled") => {
     const snapshot = appointments.find((a) => a.id === id);
+    const request =
+      user.role === "doctor"
+        ? api.updateAppointmentStatus(id, status)
+        : api.cancelAppointment(id);
+
     setActionError("");
     setPendingId(id);
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
     try {
-      await api.updateAppointmentStatus(id, status);
+      await request;
       return true;
     } catch (err) {
       if (snapshot) {
@@ -56,6 +64,7 @@ export function useAppointments(user) {
   };
 
   const cancel = (id) => changeStatus(id, "cancelled");
+  const updateStatus = (id, status) => changeStatus(id, status);
 
   return {
     doctors,
@@ -67,5 +76,6 @@ export function useAppointments(user) {
     reload,
     book,
     cancel,
+    updateStatus,
   };
 }

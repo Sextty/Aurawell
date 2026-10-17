@@ -2,15 +2,7 @@ import { useState } from "react";
 import { BookingCard } from "./BookingCard.jsx";
 import { AppointmentList } from "./AppointmentList.jsx";
 import { CancelModal } from "./CancelModal.jsx";
-
-function datePart(value) {
-  return typeof value === "string" ? value.slice(0, 10) : new Date(value).toISOString().slice(0, 10);
-}
-function isPast(appointment) {
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  return datePart(appointment.date) < todayStr;
-}
+import { isPast } from "../lib/datetime.js";
 
 export function PatientPortal({ doctors, appointments, pendingId, book, cancel }) {
   const [cancelTarget, setCancelTarget] = useState(null);

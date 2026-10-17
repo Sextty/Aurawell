@@ -17,6 +17,7 @@ export default function App() {
     reload,
     book,
     cancel,
+    updateStatus,
   } = useAppointments(user);
 
   if (!booted) return null;
@@ -51,7 +52,11 @@ export default function App() {
             cancel={cancel}
           />
         ) : (
-          <DoctorConsole appointments={appointments} pendingId={pendingId} updateStatus={cancel} />
+          <DoctorConsole
+            appointments={appointments}
+            pendingId={pendingId}
+            updateStatus={updateStatus}
+          />
         )}
       </main>
     </>
