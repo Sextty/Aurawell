@@ -5,6 +5,7 @@ import {
   stopTestServer,
   resetDatabase,
   apiRequest,
+  prisma,
 } from "./setup.js";
 
 let ctx; // { patient, doctor, patientToken, doctorToken, … }
@@ -265,14 +266,16 @@ describe("PATCH /api/appointments/:id/cancel", () => {
 // DOCTOR STATUS MANAGEMENT
 // ---------------------------------------------------------------------------
 describe("PATCH /api/appointments/:id/status (doctor)", () => {
-  it("doctor marks appointment completed", async () => {
-    const booked = await apiRequest("/api/appointments", {
-      method: "POST", token: ctx.patientToken,
-      body: { doctorId: ctx.doctor.id, date: futureDate(), time: "10:00 AM" },
-    });
-    assert.equal(booked.status, 201);
+  it("doctor marks a seeded TODAY appointment completed", async () => {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Tunis",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const appt = await seedAppointment({ dateStr: today, time: "10:00 AM" });
 
-    const res = await apiRequest(`/api/appointments/${booked.body.id}/status`, {
+    const res = await apiRequest(`/api/appointments/${appt.id}/status`, {
       method: "PATCH", token: ctx.doctorToken,
       body: { status: "completed" },
     });
@@ -318,15 +321,21 @@ describe("PATCH /api/appointments/:id/status (doctor)", () => {
   });
 
   it("cannot complete an already completed appointment", async () => {
-    const booked = await apiRequest("/api/appointments", {
-      method: "POST", token: ctx.patientToken,
-      body: { doctorId: ctx.doctor.id, date: futureDate(), time: "10:00 AM" },
-    });
-    await apiRequest(`/api/appointments/${booked.body.id}/status`, {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Tunis",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const appt = await seedAppointment({ dateStr: today, time: "10:00 AM" });
+
+    const first = await apiRequest(`/api/appointments/${appt.id}/status`, {
       method: "PATCH", token: ctx.doctorToken,
       body: { status: "completed" },
     });
-    const again = await apiRequest(`/api/appointments/${booked.body.id}/status`, {
+    assert.equal(first.status, 200);
+
+    const again = await apiRequest(`/api/appointments/${appt.id}/status`, {
       method: "PATCH", token: ctx.doctorToken,
       body: { status: "cancelled" },
     });
@@ -372,6 +381,123 @@ describe("GET /api/appointments", () => {
   it("returns 401 without a token", async () => {
     const res = await apiRequest("/api/appointments");
     assert.equal(res.status, 401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ORDERING (slot order, not lexicographic time)
+// ---------------------------------------------------------------------------
+describe("GET /api/appointments ordering", () => {
+  it("sorts same-day visits by slot order (09:30 AM before 02:00 PM)", async () => {
+    const date = futureDate(9);
+
+    // Book the later-in-the-day slot FIRST so insertion order can't mask sorting.
+    await apiRequest("/api/appointments", {
+      method: "POST",
+      token: ctx.patientToken,
+      body: { doctorId: ctx.doctor.id, date, time: "02:00 PM", reason: "Afternoon" },
+    });
+    await apiRequest("/api/appointments", {
+      method: "POST",
+      token: ctx.patientToken,
+      body: { doctorId: ctx.doctor.id, date, time: "09:30 AM", reason: "Morning" },
+    });
+
+    const list = await apiRequest("/api/appointments", { token: ctx.patientToken });
+    assert.equal(list.status, 200);
+    const sameDay = list.body.filter((a) => a.date.startsWith(date));
+    assert.deepEqual(
+      sameDay.map((a) => a.time),
+      ["09:30 AM", "02:00 PM"]
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DOCTOR STATUS — completed only on/after the visit's date
+// ---------------------------------------------------------------------------
+async function seedAppointment({ dateStr, time = "10:00 AM", status = "upcoming" }) {
+  return prisma.appointment.create({
+    data: {
+      doctorId: ctx.doctor.id,
+      patientId: ctx.patient.id,
+      date: new Date(`${dateStr}T00:00:00.000Z`),
+      time,
+      reason: "Seeded for status test",
+      status,
+    },
+  });
+}
+
+describe("PATCH /api/appointments/:id/status date guard", () => {
+  it("doctor cannot mark a FUTURE visit completed", async () => {
+    const date = futureDate(14);
+    const booked = await apiRequest("/api/appointments", {
+      method: "POST",
+      token: ctx.patientToken,
+      body: { doctorId: ctx.doctor.id, date, time: "10:00 AM" },
+    });
+    assert.equal(booked.status, 201);
+
+    const res = await apiRequest(`/api/appointments/${booked.body.id}/status`, {
+      method: "PATCH",
+      token: ctx.doctorToken,
+      body: { status: "completed" },
+    });
+    assert.equal(res.status, 404);
+
+    // The visit must still be upcoming.
+    const list = await apiRequest("/api/appointments", { token: ctx.doctorToken });
+    const stillThere = list.body.find((a) => a.id === booked.body.id);
+    assert.equal(stillThere.status, "upcoming");
+  });
+
+  it("doctor CAN mark a TODAY visit completed", async () => {
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Tunis",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const appt = await seedAppointment({ dateStr: today, time: "09:00 AM" });
+
+    const res = await apiRequest(`/api/appointments/${appt.id}/status`, {
+      method: "PATCH",
+      token: ctx.doctorToken,
+      body: { status: "completed" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, "completed");
+  });
+
+  it("doctor CAN mark a PAST visit completed", async () => {
+    const appt = await seedAppointment({ dateStr: "2020-01-01", time: "10:00 AM" });
+
+    const res = await apiRequest(`/api/appointments/${appt.id}/status`, {
+      method: "PATCH",
+      token: ctx.doctorToken,
+      body: { status: "completed" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, "completed");
+  });
+
+  it("doctor may still CANCEL a future visit", async () => {
+    const date = futureDate(14);
+    const booked = await apiRequest("/api/appointments", {
+      method: "POST",
+      token: ctx.patientToken,
+      body: { doctorId: ctx.doctor.id, date, time: "11:00 AM" },
+    });
+    assert.equal(booked.status, 201);
+
+    const res = await apiRequest(`/api/appointments/${booked.body.id}/status`, {
+      method: "PATCH",
+      token: ctx.doctorToken,
+      body: { status: "cancelled" },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.status, "cancelled");
   });
 });
 
