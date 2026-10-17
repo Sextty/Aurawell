@@ -10,13 +10,21 @@ import {
   appointmentQuerySchema,
 } from "../middleware/validate.js";
 import { APPOINTMENT_STATUS } from "../constants/status.js";
-import { getClinicTodayString, parseDateToUtc } from "../utils/datetime.js";
+import { CLINIC_SLOTS } from "../constants/slots.js";
+import { getClinicTodayString, parseDateToUtc, parseSlotMinutes } from "../utils/datetime.js";
 
 const router = Router();
 router.use(requireAuth);
 
 // Patients see their own visits; doctors see everyone booked with them.
 // Supports status filtering and limit pagination.
+// Orders by date, then by the slot's real position in the clinic schedule —
+// lexicographic `time` sorting would put "02:00 PM" before "09:30 AM".
+function slotOrder(time) {
+  const index = CLINIC_SLOTS.indexOf(time);
+  return index === -1 ? parseSlotMinutes(time) : index;
+}
+
 router.get(
   "/",
   validateQuery(appointmentQuerySchema),
@@ -34,8 +42,13 @@ router.get(
         patient: { select: { id: true, name: true, email: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
       },
-      orderBy: [{ date: "asc" }, { time: "asc" }],
+      orderBy: [{ date: "asc" }],
     });
+    appointments.sort(
+      (a, b) =>
+        a.date.toISOString().localeCompare(b.date.toISOString()) ||
+        slotOrder(a.time) - slotOrder(b.time)
+    );
     res.json(appointments);
   })
 );
@@ -116,6 +129,8 @@ router.patch(
 );
 
 // Doctors can manage visits booked with them (mark completed or cancelled).
+// A visit can only be marked completed once its date has arrived (date <= clinic
+// today); cancelling is allowed at any time while it is upcoming.
 // State change is atomic via updateMany; returns 404 if not found or not eligible.
 router.patch(
   "/:id/status",
@@ -124,12 +139,17 @@ router.patch(
   asyncHandler(async (req, res) => {
     const { status } = req.body;
 
+    const where = {
+      id: req.params.id,
+      doctorId: req.user.sub,
+      status: APPOINTMENT_STATUS.UPCOMING,
+    };
+    if (status === APPOINTMENT_STATUS.COMPLETED) {
+      where.date = { lte: parseDateToUtc(getClinicTodayString()) };
+    }
+
     const { count } = await prisma.appointment.updateMany({
-      where: {
-        id: req.params.id,
-        doctorId: req.user.sub,
-        status: APPOINTMENT_STATUS.UPCOMING,
-      },
+      where,
       data: { status },
     });
 

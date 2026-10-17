@@ -21,12 +21,23 @@ app.use(
       if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
         callback(null, true);
       } else {
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
+        // Reject the request with 403 (not a thrown 500) via the guard below.
+        callback(null, false);
       }
     },
     credentials: true,
   })
 );
+
+// Disallowed origins get an explicit 403 with a clear message instead of
+// silently missing CORS headers.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !allowedOrigins.includes(origin) && !allowedOrigins.includes("*")) {
+    return res.status(403).json({ error: `Origin ${origin} is not allowed by CORS` });
+  }
+  next();
+});
 
 app.use(express.json());
 
